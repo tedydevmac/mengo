@@ -13,3 +13,9 @@ data class MarkChaptersRequest(
     val chapterIdsRead: List<String> = emptyList(),
     val chapterIdsUnread: List<String> = emptyList(),
 )
+
+@Serializable
+data class MangaStatusResponse(
+    val result: String,
+    val statuses: Map<String, String?> = emptyMap(),
+)

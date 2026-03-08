@@ -115,6 +115,8 @@ class MangaDexSource(
 
     suspend fun fetchAllFollows(): List<SManga> = followsHandler.fetchAllFollows()
 
+    suspend fun fetchAllReadingStatuses(): Map<String, String> = followsHandler.fetchAllReadingStatuses()
+
     // ====== Web URL helpers ======
 
     override fun getMangaUrl(manga: SManga): String {

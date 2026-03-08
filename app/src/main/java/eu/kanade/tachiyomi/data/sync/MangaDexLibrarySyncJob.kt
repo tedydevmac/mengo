@@ -19,9 +19,14 @@ import eu.kanade.tachiyomi.util.system.isRunning
 import eu.kanade.tachiyomi.util.system.setForegroundSafely
 import eu.kanade.tachiyomi.util.system.workManager
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import logcat.LogPriority
 import tachiyomi.core.common.util.lang.withIOContext
 import tachiyomi.core.common.util.system.logcat
+import tachiyomi.domain.category.interactor.CreateCategoryWithName
+import tachiyomi.domain.category.interactor.GetCategories
+import tachiyomi.domain.category.interactor.SetMangaCategories
 import tachiyomi.domain.manga.interactor.GetMangaByUrlAndSourceId
 import tachiyomi.domain.manga.interactor.NetworkToLocalManga
 import tachiyomi.domain.manga.model.Manga
@@ -37,6 +42,9 @@ class MangaDexLibrarySyncJob(
     private val mangaDexSource: MangaDexSource = Injekt.get()
     private val getMangaByUrlAndSourceId: GetMangaByUrlAndSourceId = Injekt.get()
     private val networkToLocalManga: NetworkToLocalManga = Injekt.get()
+    private val getCategories: GetCategories = Injekt.get()
+    private val createCategoryWithName: CreateCategoryWithName = Injekt.get()
+    private val setMangaCategories: SetMangaCategories = Injekt.get()
 
     override suspend fun doWork(): Result {
         if (tags.contains(WORK_NAME_AUTO)) {
@@ -69,14 +77,24 @@ class MangaDexLibrarySyncJob(
 
     private suspend fun syncLibrary() {
         logcat { "Starting MangaDex library sync..." }
-        val follows = mangaDexSource.fetchAllFollows()
-        logcat { "Fetched ${follows.size} follows from MangaDex" }
+
+        val (follows, readingStatuses) = coroutineScope {
+            val followsDeferred = async { mangaDexSource.fetchAllFollows() }
+            val statusesDeferred = async { mangaDexSource.fetchAllReadingStatuses() }
+            followsDeferred.await() to statusesDeferred.await()
+        }
+        logcat { "Fetched ${follows.size} follows and ${readingStatuses.size} statuses from MangaDex" }
+
+        // Build status → category ID map, creating categories as needed
+        val statusToCategoryId = buildStatusCategoryMap(readingStatuses.values.toSet())
 
         var added = 0
         var updated = 0
 
         for (sManga in follows) {
+            val mangaId = sManga.url.substringAfterLast("/")
             val existingManga = getMangaByUrlAndSourceId.await(sManga.url, mangaDexSource.id)
+            val localManga: Manga
             if (existingManga == null) {
                 // Insert new manga into the database as a favorite
                 val manga = Manga.create().copy(
@@ -92,17 +110,57 @@ class MangaDexLibrarySyncJob(
                     favorite = true,
                     initialized = sManga.initialized,
                 )
-                networkToLocalManga(manga)
+                localManga = networkToLocalManga(manga)
                 added++
             } else if (!existingManga.favorite) {
                 // Existing but not favorited: mark as favorite
-                val updatedManga = existingManga.copy(favorite = true)
-                networkToLocalManga(updatedManga)
+                localManga = networkToLocalManga(existingManga.copy(favorite = true))
                 updated++
+            } else {
+                localManga = existingManga
+            }
+
+            // Assign to category based on MangaDex reading status
+            val status = readingStatuses[mangaId]
+            val categoryId = status?.let { statusToCategoryId[it] }
+            if (categoryId != null) {
+                setMangaCategories.await(localManga.id, listOf(categoryId))
             }
         }
 
         logcat { "MangaDex library sync complete: $added added, $updated updated" }
+    }
+
+    private suspend fun buildStatusCategoryMap(statuses: Set<String>): Map<String, Long> {
+        val statusNames = mapOf(
+            "reading" to "Reading",
+            "plan_to_read" to "Plan to Read",
+            "completed" to "Completed",
+            "re_reading" to "Re-reading",
+            "on_hold" to "On Hold",
+            "dropped" to "Dropped",
+        )
+
+        val existingCategories = getCategories.await()
+        val categoryByName = existingCategories.associateBy { it.name }
+        val result = mutableMapOf<String, Long>()
+
+        for (status in statuses) {
+            val name = statusNames[status] ?: continue
+            val existing = categoryByName[name]
+            if (existing != null) {
+                result[status] = existing.id
+            } else {
+                createCategoryWithName.await(name)
+                // Re-fetch to get the assigned ID
+                val created = getCategories.await().find { it.name == name }
+                if (created != null) {
+                    result[status] = created.id
+                }
+            }
+        }
+
+        return result
     }
 
     override suspend fun getForegroundInfo(): ForegroundInfo {

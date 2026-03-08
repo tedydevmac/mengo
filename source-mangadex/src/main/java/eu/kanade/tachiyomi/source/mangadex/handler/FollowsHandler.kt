@@ -2,6 +2,7 @@ package eu.kanade.tachiyomi.source.mangadex.handler
 
 import eu.kanade.tachiyomi.source.mangadex.MangaDexConstants
 import eu.kanade.tachiyomi.source.mangadex.dto.MangaListResponse
+import eu.kanade.tachiyomi.source.mangadex.dto.MangaStatusResponse
 import eu.kanade.tachiyomi.source.model.SManga
 import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -38,5 +39,13 @@ class FollowsHandler(
         } while (offset < total)
 
         allManga
+    }
+
+    suspend fun fetchAllReadingStatuses(): Map<String, String> = withIOContext {
+        val url = "${MangaDexConstants.BASE_URL}/manga/status"
+        val request = Request.Builder().url(url).build()
+        val response = client.newCall(request).execute()
+        val statusResponse = json.decodeFromString<MangaStatusResponse>(response.body.string())
+        statusResponse.statuses.filterValues { it != null }.mapValues { it.value!! }
     }
 }
