@@ -7,6 +7,7 @@ import eu.kanade.tachiyomi.network.interceptor.UncaughtExceptionInterceptor
 import eu.kanade.tachiyomi.network.interceptor.UserAgentInterceptor
 import okhttp3.Cache
 import okhttp3.OkHttpClient
+import okhttp3.Protocol
 import okhttp3.brotli.BrotliInterceptor
 import okhttp3.logging.HttpLoggingInterceptor
 import java.io.File
@@ -22,6 +23,7 @@ class NetworkHelper(
     private val clientBuilder: OkHttpClient.Builder = run {
         val builder = OkHttpClient.Builder()
             .cookieJar(cookieJar)
+            .protocols(listOf(Protocol.HTTP_1_1))
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .callTimeout(2, TimeUnit.MINUTES)
@@ -58,6 +60,14 @@ class NetworkHelper(
             PREF_DOH_SHECAN -> builder.dohShecan()
             else -> builder
         }
+
+        // Wrap DoH with system DNS fallback for networks that block DoH
+        if (preferences.dohProvider().get() > 0) {
+            val dohDns = builder.build().dns
+            builder.dns(FallbackDns(dohDns))
+        }
+
+        builder
     }
 
     val nonCloudflareClient = clientBuilder.build()

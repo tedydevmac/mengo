@@ -85,10 +85,8 @@ class App : Application(), DefaultLifecycleObserver, SingletonImageLoader.Factor
 
         GlobalExceptionHandler.initialize(applicationContext, CrashActivity::class.java)
 
-        // TLS 1.3 support for Android < 10
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-            Security.insertProviderAt(Conscrypt.newProvider(), 1)
-        }
+        // Use Conscrypt for consistent TLS behavior across all Android versions
+        Security.insertProviderAt(Conscrypt.newProvider(), 1)
 
         // Avoid potential crashes
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {

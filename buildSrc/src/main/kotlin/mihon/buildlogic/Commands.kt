@@ -35,11 +35,19 @@ fun Project.getBuildTime(useLastCommitTime: Boolean): String {
 }
 
 private fun Project.runCommand(command: String): String {
-    return providers.exec {
-        commandLine = command.split(" ")
+    return try {
+        val result = providers.exec {
+            commandLine = command.split(" ")
+            isIgnoreExitValue = true
+        }
+        val exitCode = result.result.get().exitValue
+        if (exitCode != 0) {
+            logger.warn("Command '$command' failed with exit code $exitCode")
+            return "1"
+        }
+        result.standardOutput.asText.get().trim()
+    } catch (e: Exception) {
+        logger.warn("Command '$command' failed: ${e.message}")
+        "1"
     }
-        .standardOutput
-        .asText
-        .get()
-        .trim()
 }

@@ -1,9 +1,15 @@
 package eu.kanade.presentation.more
 
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.HelpOutline
 import androidx.compose.material.icons.automirrored.outlined.Label
+import androidx.compose.material.icons.outlined.AccountCircle
 import androidx.compose.material.icons.outlined.AttachMoney
 import androidx.compose.material.icons.outlined.CloudOff
 import androidx.compose.material.icons.outlined.GetApp
@@ -11,12 +17,24 @@ import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.QueryStats
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Storage
+import androidx.compose.material.icons.outlined.Sync
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.vectorResource
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.unit.dp
 import eu.kanade.presentation.more.settings.widget.SwitchPreferenceWidget
 import eu.kanade.presentation.more.settings.widget.TextPreferenceWidget
 import eu.kanade.tachiyomi.R
@@ -35,6 +53,10 @@ fun MoreScreen(
     onDownloadedOnlyChange: (Boolean) -> Unit,
     incognitoMode: Boolean,
     onIncognitoModeChange: (Boolean) -> Unit,
+    isMangaDexLoggedIn: Boolean,
+    onMangaDexLogin: (String, String) -> Unit,
+    onMangaDexLogout: () -> Unit,
+    onClickMangaDexSync: () -> Unit,
     onClickDownloadQueue: () -> Unit,
     onClickCategories: () -> Unit,
     onClickStats: () -> Unit,
@@ -43,6 +65,17 @@ fun MoreScreen(
     onClickAbout: () -> Unit,
 ) {
     val uriHandler = LocalUriHandler.current
+    var showLoginDialog by remember { mutableStateOf(false) }
+
+    if (showLoginDialog) {
+        MangaDexLoginDialog(
+            onDismiss = { showLoginDialog = false },
+            onLogin = { username, password ->
+                showLoginDialog = false
+                onMangaDexLogin(username, password)
+            },
+        )
+    }
 
     Scaffold { contentPadding ->
         ScrollbarLazyColumn(
@@ -68,6 +101,33 @@ fun MoreScreen(
                     checked = incognitoMode,
                     onCheckedChanged = onIncognitoModeChange,
                 )
+            }
+
+            item { HorizontalDivider() }
+
+            item {
+                TextPreferenceWidget(
+                    title = "MangaDex Account",
+                    subtitle = if (isMangaDexLoggedIn) "Logged in" else "Not logged in",
+                    icon = Icons.Outlined.AccountCircle,
+                    onPreferenceClick = {
+                        if (isMangaDexLoggedIn) {
+                            onMangaDexLogout()
+                        } else {
+                            showLoginDialog = true
+                        }
+                    },
+                )
+            }
+            if (isMangaDexLoggedIn) {
+                item {
+                    TextPreferenceWidget(
+                        title = "Sync Library",
+                        subtitle = "Sync MangaDex follows to library",
+                        icon = Icons.Outlined.Sync,
+                        onPreferenceClick = onClickMangaDexSync,
+                    )
+                }
             }
 
             item { HorizontalDivider() }
@@ -155,4 +215,54 @@ fun MoreScreen(
             }
         }
     }
+}
+
+@Composable
+private fun MangaDexLoginDialog(
+    onDismiss: () -> Unit,
+    onLogin: (String, String) -> Unit,
+) {
+    var username by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("MangaDex Login") },
+        text = {
+            Column {
+                Text("Enter your MangaDex credentials")
+                Spacer(modifier = Modifier.height(16.dp))
+                OutlinedTextField(
+                    value = username,
+                    onValueChange = { username = it },
+                    label = { Text("Username or Email") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = { password = it },
+                    label = { Text("Password") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onLogin(username, password) },
+                enabled = username.isNotBlank() && password.isNotBlank(),
+            ) {
+                Text("Login")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        },
+    )
 }

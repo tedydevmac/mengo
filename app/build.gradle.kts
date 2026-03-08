@@ -24,10 +24,10 @@ android {
     namespace = "eu.kanade.tachiyomi"
 
     defaultConfig {
-        applicationId = "app.mihon"
+        applicationId = "app.mengo"
 
-        versionCode = 17
-        versionName = "0.19.4"
+        versionCode = 1
+        versionName = "1.0.0"
 
         buildConfigField("String", "COMMIT_COUNT", "\"${getCommitCount()}\"")
         buildConfigField("String", "COMMIT_SHA", "\"${getGitSha()}\"")
@@ -178,6 +178,7 @@ dependencies {
     implementation(projects.coreMetadata)
     implementation(projects.sourceApi)
     implementation(projects.sourceLocal)
+    implementation(projects.sourceMangadex)
     implementation(projects.data)
     implementation(projects.domain)
     implementation(projects.presentationCore)
