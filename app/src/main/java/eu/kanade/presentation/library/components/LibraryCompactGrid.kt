@@ -32,6 +32,7 @@ internal fun LibraryCompactGrid(
         items(
             items = items,
             contentType = { "library_compact_grid_item" },
+            key = { it.libraryManga.manga.id },
         ) { libraryItem ->
             val manga = libraryItem.libraryManga.manga
             MangaCompactGridItem(

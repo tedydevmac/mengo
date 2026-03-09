@@ -31,6 +31,7 @@ internal fun LibraryComfortableGrid(
         items(
             items = items,
             contentType = { "library_comfortable_grid_item" },
+            key = { it.libraryManga.manga.id },
         ) { libraryItem ->
             val manga = libraryItem.libraryManga.manga
             MangaComfortableGridItem(

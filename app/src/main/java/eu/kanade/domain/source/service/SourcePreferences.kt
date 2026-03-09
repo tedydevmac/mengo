@@ -74,4 +74,6 @@ class SourcePreferences(
     fun migrationHideUnmatched() = preferenceStore.getBoolean("migration_hide_unmatched", false)
 
     fun migrationHideWithoutUpdates() = preferenceStore.getBoolean("migration_hide_without_updates", false)
+
+    fun mangadexTitleLang() = preferenceStore.getString("mangadex_title_lang", "en")
 }

@@ -38,7 +38,10 @@ fun BrowseSourceCompactGrid(
             }
         }
 
-        items(count = mangaList.itemCount) { index ->
+        items(
+            count = mangaList.itemCount,
+            key = { mangaList[it]?.value?.id ?: it },
+        ) { index ->
             val manga by mangaList[index]?.collectAsState() ?: return@items
             BrowseSourceCompactGridItem(
                 manga = manga,

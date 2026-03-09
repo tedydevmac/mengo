@@ -451,7 +451,7 @@ class LibraryUpdateJob(private val context: Context, workerParams: WorkerParamet
                 val request = PeriodicWorkRequestBuilder<LibraryUpdateJob>(
                     interval.toLong(),
                     TimeUnit.HOURS,
-                    10,
+                    30,
                     TimeUnit.MINUTES,
                 )
                     .addTag(TAG)

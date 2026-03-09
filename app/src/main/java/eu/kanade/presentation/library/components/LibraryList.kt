@@ -41,6 +41,7 @@ internal fun LibraryList(
         items(
             items = items,
             contentType = { "library_list_item" },
+            key = { it.libraryManga.manga.id },
         ) { libraryItem ->
             val manga = libraryItem.libraryManga.manga
             MangaListItem(

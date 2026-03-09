@@ -121,8 +121,14 @@ class MetadataUpdateJob(private val context: Context, workerParams: WorkerParame
                                     val source = sourceManager.get(manga.source) ?: return@withUpdateNotification
                                     try {
                                         val networkManga = source.getMangaDetails(manga.toSManga())
+                                        val remoteTitle = try {
+                                            networkManga.title
+                                        } catch (_: UninitializedPropertyAccessException) {
+                                            ""
+                                        }
                                         val updatedManga = manga.prepUpdateCover(coverCache, networkManga, true)
                                             .copyFrom(networkManga)
+                                            .let { if (remoteTitle.isNotEmpty()) it.copy(title = remoteTitle) else it }
                                         try {
                                             updateManga.await(updatedManga.toMangaUpdate())
                                         } catch (e: Exception) {

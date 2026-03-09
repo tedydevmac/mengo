@@ -2,6 +2,7 @@ package eu.kanade.tachiyomi.source.mangadex.handler
 
 import eu.kanade.tachiyomi.source.mangadex.MangaDexConstants
 import android.util.Log
+import eu.kanade.tachiyomi.source.mangadex.dto.MangaAttributes
 import eu.kanade.tachiyomi.source.mangadex.dto.MangaData
 import eu.kanade.tachiyomi.source.mangadex.dto.MangaListResponse
 import eu.kanade.tachiyomi.source.model.FilterList
@@ -17,6 +18,7 @@ class SearchHandler(
     private val client: OkHttpClient,
     private val json: Json,
     private val lang: String = MangaDexConstants.SOURCE_LANG,
+    private val titleLangProvider: () -> String = { "en" },
 ) {
 
     suspend fun fetchPopularManga(page: Int): MangasPage = withIOContext {
@@ -39,7 +41,8 @@ class SearchHandler(
         val mangaListResponse = json.decodeFromString<MangaListResponse>(response.body.string())
 
         val hasNextPage = (page * MangaDexConstants.Limits.MANGA_LIMIT) < mangaListResponse.total
-        val mangas = mangaListResponse.data.map { it.toSManga() }
+        val titleLang = titleLangProvider()
+        val mangas = mangaListResponse.data.map { it.toSManga(titleLang) }
         MangasPage(mangas, hasNextPage)
     }
 
@@ -66,7 +69,8 @@ class SearchHandler(
         val mangaListResponse = json.decodeFromString<MangaListResponse>(response.body.string())
 
         val hasNextPage = (page * MangaDexConstants.Limits.MANGA_LIMIT) < mangaListResponse.total
-        val mangas = mangaListResponse.data.map { it.toSManga() }
+        val titleLang = titleLangProvider()
+        val mangas = mangaListResponse.data.map { it.toSManga(titleLang) }
         MangasPage(mangas, hasNextPage)
     }
 
@@ -90,16 +94,23 @@ class SearchHandler(
         val mangaListResponse = json.decodeFromString<MangaListResponse>(response.body.string())
 
         val hasNextPage = (page * MangaDexConstants.Limits.MANGA_LIMIT) < mangaListResponse.total
-        val mangas = mangaListResponse.data.map { it.toSManga() }
+        val titleLang = titleLangProvider()
+        val mangas = mangaListResponse.data.map { it.toSManga(titleLang) }
         MangasPage(mangas, hasNextPage)
     }
 }
 
-internal fun MangaData.toSManga(): SManga = SManga.create().apply {
-    url = "/manga/$id"
-    title = attributes.title["en"]
-        ?: attributes.title.values.firstOrNull()
+private fun MangaAttributes.resolveTitle(lang: String): String {
+    title[lang]?.let { return it }
+    altTitles.forEach { map -> map[lang]?.let { return it } }
+    return title.values.firstOrNull()
+        ?: altTitles.firstNotNullOfOrNull { it.values.firstOrNull() }
         ?: ""
+}
+
+internal fun MangaData.toSManga(titleLang: String = "en"): SManga = SManga.create().apply {
+    url = "/manga/$id"
+    title = attributes.resolveTitle(titleLang)
     val coverFileName = relationships
         .firstOrNull { it.type == "cover_art" }
         ?.attributes?.fileName

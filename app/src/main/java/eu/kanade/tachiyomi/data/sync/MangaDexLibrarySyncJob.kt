@@ -90,37 +90,48 @@ class MangaDexLibrarySyncJob(
 
         var added = 0
         var updated = 0
+        val mangaToUpsert = mutableListOf<Manga>()
+        val existingFavorites = mutableListOf<Manga>()
 
+        // Phase 1: Classify follows — collect manga needing DB upsert vs already-favorite
         for (sManga in follows) {
-            val mangaId = sManga.url.substringAfterLast("/")
             val existingManga = getMangaByUrlAndSourceId.await(sManga.url, mangaDexSource.id)
-            val localManga: Manga
             if (existingManga == null) {
-                // Insert new manga into the database as a favorite
-                val manga = Manga.create().copy(
-                    url = sManga.url,
-                    title = sManga.title,
-                    source = mangaDexSource.id,
-                    thumbnailUrl = sManga.thumbnail_url,
-                    artist = sManga.artist,
-                    author = sManga.author,
-                    description = sManga.description,
-                    genre = sManga.getGenres(),
-                    status = sManga.status.toLong(),
-                    favorite = true,
-                    initialized = sManga.initialized,
+                mangaToUpsert.add(
+                    Manga.create().copy(
+                        url = sManga.url,
+                        title = sManga.title,
+                        source = mangaDexSource.id,
+                        thumbnailUrl = sManga.thumbnail_url,
+                        artist = sManga.artist,
+                        author = sManga.author,
+                        description = sManga.description,
+                        genre = sManga.getGenres(),
+                        status = sManga.status.toLong(),
+                        favorite = true,
+                        initialized = sManga.initialized,
+                    ),
                 )
-                localManga = networkToLocalManga(manga)
                 added++
             } else if (!existingManga.favorite) {
-                // Existing but not favorited: mark as favorite
-                localManga = networkToLocalManga(existingManga.copy(favorite = true))
+                mangaToUpsert.add(existingManga.copy(favorite = true))
                 updated++
             } else {
-                localManga = existingManga
+                existingFavorites.add(existingManga)
             }
+        }
 
-            // Assign to category based on MangaDex reading status
+        // Phase 2: Batch upsert in a single DB transaction
+        val upsertedManga = if (mangaToUpsert.isNotEmpty()) {
+            networkToLocalManga(mangaToUpsert)
+        } else {
+            emptyList()
+        }
+
+        // Phase 3: Assign categories for all local manga
+        val allLocalManga = upsertedManga + existingFavorites
+        for (localManga in allLocalManga) {
+            val mangaId = localManga.url.substringAfterLast("/")
             val status = readingStatuses[mangaId]
             val categoryId = status?.let { statusToCategoryId[it] }
             if (categoryId != null) {
@@ -142,7 +153,7 @@ class MangaDexLibrarySyncJob(
         )
 
         val existingCategories = getCategories.await()
-        val categoryByName = existingCategories.associateBy { it.name }
+        var categoryByName = existingCategories.associateBy { it.name }
         val result = mutableMapOf<String, Long>()
 
         for (status in statuses) {
@@ -152,11 +163,9 @@ class MangaDexLibrarySyncJob(
                 result[status] = existing.id
             } else {
                 createCategoryWithName.await(name)
-                // Re-fetch to get the assigned ID
-                val created = getCategories.await().find { it.name == name }
-                if (created != null) {
-                    result[status] = created.id
-                }
+                // Re-fetch and update the local map
+                categoryByName = getCategories.await().associateBy { it.name }
+                categoryByName[name]?.let { result[status] = it.id }
             }
         }
 
@@ -194,7 +203,7 @@ class MangaDexLibrarySyncJob(
             val request = PeriodicWorkRequestBuilder<MangaDexLibrarySyncJob>(
                 6,
                 TimeUnit.HOURS,
-                10,
+                30,
                 TimeUnit.MINUTES,
             )
                 .addTag(TAG)

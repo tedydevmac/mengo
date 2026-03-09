@@ -20,6 +20,7 @@ import eu.kanade.tachiyomi.extension.ExtensionManager
 import eu.kanade.tachiyomi.network.JavaScriptEngine
 import eu.kanade.tachiyomi.network.NetworkHelper
 import eu.kanade.tachiyomi.source.AndroidSourceManager
+import eu.kanade.domain.source.service.SourcePreferences
 import eu.kanade.tachiyomi.source.mangadex.MangaDexAuthManager
 import eu.kanade.tachiyomi.source.mangadex.MangaDexSource
 import io.requery.android.database.sqlite.RequerySQLiteOpenHelperFactory
@@ -120,7 +121,13 @@ class AppModule(val app: Application) : InjektModule {
         addSingletonFactory { JavaScriptEngine(app) }
 
         addSingletonFactory { MangaDexAuthManager(app, get()) }
-        addSingletonFactory { MangaDexSource(get(), get()) }
+        addSingletonFactory {
+            MangaDexSource(
+                get(),
+                get(),
+                titleLangProvider = { get<SourcePreferences>().mangadexTitleLang().get() },
+            )
+        }
 
         addSingletonFactory<SourceManager> { AndroidSourceManager(app, get(), get()) }
         addSingletonFactory { ExtensionManager(app) }

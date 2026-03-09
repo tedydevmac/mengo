@@ -12,8 +12,10 @@ import cafe.adriel.voyager.navigator.currentOrThrow
 import eu.kanade.domain.source.service.SourcePreferences
 import eu.kanade.presentation.more.settings.Preference
 import eu.kanade.presentation.more.settings.screen.browse.ExtensionReposScreen
+import eu.kanade.tachiyomi.data.library.MetadataUpdateJob
 import eu.kanade.tachiyomi.util.system.AuthenticatorUtil.authenticate
 import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.persistentMapOf
 import mihon.domain.extensionrepo.interactor.GetExtensionRepoCount
 import tachiyomi.core.common.i18n.stringResource
 import tachiyomi.i18n.MR
@@ -45,6 +47,18 @@ object SettingsBrowseScreen : SearchableSettings {
                     Preference.PreferenceItem.SwitchPreference(
                         preference = sourcePreferences.hideInLibraryItems(),
                         title = stringResource(MR.strings.pref_hide_in_library_items),
+                    ),
+                    Preference.PreferenceItem.ListPreference(
+                        preference = sourcePreferences.mangadexTitleLang(),
+                        title = stringResource(MR.strings.pref_mangadex_title_lang),
+                        entries = persistentMapOf(
+                            "en" to stringResource(MR.strings.pref_mangadex_title_lang_en),
+                            "ja" to stringResource(MR.strings.pref_mangadex_title_lang_ja),
+                        ),
+                        onValueChanged = {
+                            MetadataUpdateJob.startNow(context)
+                            true
+                        },
                     ),
                     Preference.PreferenceItem.TextPreference(
                         title = stringResource(MR.strings.label_extension_repos),

@@ -22,6 +22,7 @@ import okhttp3.Response
 class MangaDexSource(
     private val authManager: MangaDexAuthManager,
     private val json: Json,
+    private val titleLangProvider: () -> String = { "en" },
 ) : HttpSource() {
 
     override val name: String = MangaDexConstants.SOURCE_NAME
@@ -41,11 +42,11 @@ class MangaDexSource(
             .build()
     }
 
-    private val searchHandler by lazy { SearchHandler(client, json) }
-    private val mangaHandler by lazy { MangaHandler(client, json) }
+    private val searchHandler by lazy { SearchHandler(client, json, titleLangProvider = titleLangProvider) }
+    private val mangaHandler by lazy { MangaHandler(client, json, titleLangProvider = titleLangProvider) }
     private val chapterHandler by lazy { ChapterHandler(client, json) }
     private val pageHandler by lazy { PageHandler(client, json) }
-    val followsHandler by lazy { FollowsHandler(client, json) }
+    val followsHandler by lazy { FollowsHandler(client, json, titleLangProvider = titleLangProvider) }
     val readStatusHandler by lazy { ReadStatusHandler(client, json) }
 
     // ====== Suspend function overrides (the actual implementation) ======

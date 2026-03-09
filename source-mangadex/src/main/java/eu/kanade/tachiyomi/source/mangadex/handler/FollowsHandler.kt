@@ -13,6 +13,7 @@ import tachiyomi.core.common.util.lang.withIOContext
 class FollowsHandler(
     private val client: OkHttpClient,
     private val json: Json,
+    private val titleLangProvider: () -> String = { "en" },
 ) {
 
     suspend fun fetchAllFollows(): List<SManga> = withIOContext {
@@ -34,7 +35,7 @@ class FollowsHandler(
             val mangaListResponse = json.decodeFromString<MangaListResponse>(response.body.string())
 
             total = mangaListResponse.total
-            allManga.addAll(mangaListResponse.data.map { it.toSManga() })
+            allManga.addAll(mangaListResponse.data.map { it.toSManga(titleLangProvider()) })
             offset += MangaDexConstants.Limits.FOLLOWS_LIMIT
         } while (offset < total)
 

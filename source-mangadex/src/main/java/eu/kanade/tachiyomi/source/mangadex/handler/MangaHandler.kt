@@ -12,6 +12,7 @@ import tachiyomi.core.common.util.lang.withIOContext
 class MangaHandler(
     private val client: OkHttpClient,
     private val json: Json,
+    private val titleLangProvider: () -> String = { "en" },
 ) {
 
     suspend fun fetchMangaDetails(manga: SManga): SManga = withIOContext {
@@ -26,7 +27,7 @@ class MangaHandler(
         val response = client.newCall(request).execute()
         val mangaResponse = json.decodeFromString<MangaResponse>(response.body.string())
 
-        mangaResponse.data.toSManga().apply {
+        mangaResponse.data.toSManga(titleLangProvider()).apply {
             initialized = true
         }
     }
