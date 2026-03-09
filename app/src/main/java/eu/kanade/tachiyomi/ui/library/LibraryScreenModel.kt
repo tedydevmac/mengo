@@ -474,6 +474,7 @@ class LibraryScreenModel(
             DownloadAction.NEXT_25_CHAPTERS -> downloadNextChapters(25)
             DownloadAction.UNREAD_CHAPTERS -> downloadNextChapters(null)
             DownloadAction.BOOKMARKED_CHAPTERS -> downloadBookmarkedChapters()
+            DownloadAction.ALL_CHAPTERS -> downloadEveryChapter()
         }
         clearSelection()
     }
@@ -505,6 +506,26 @@ class LibraryScreenModel(
         screenModelScope.launchNonCancellable {
             mangas.forEach { manga ->
                 val chapters = getBookmarkedChaptersByMangaId.await(manga.id)
+                    .fastFilterNot { chapter ->
+                        downloadManager.getQueuedDownloadOrNull(chapter.id) != null ||
+                            downloadManager.isChapterDownloaded(
+                                chapter.name,
+                                chapter.scanlator,
+                                chapter.url,
+                                manga.title,
+                                manga.source,
+                            )
+                    }
+                downloadManager.downloadChapters(manga, chapters)
+            }
+        }
+    }
+
+    private fun downloadEveryChapter() {
+        val mangas = state.value.selectedManga
+        screenModelScope.launchNonCancellable {
+            mangas.forEach { manga ->
+                val chapters = getChaptersByMangaId.await(manga.id)
                     .fastFilterNot { chapter ->
                         downloadManager.getQueuedDownloadOrNull(chapter.id) != null ||
                             downloadManager.isChapterDownloaded(
