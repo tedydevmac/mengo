@@ -1108,7 +1108,13 @@ class MangaScreenModel(
         data object SettingsSheet : Dialog
         data object TrackSheet : Dialog
         data object FullCover : Dialog
-        data class FillSourcePicker(val sources: List<Pair<Long, String>>) : Dialog
+        data class FillSourcePicker(
+            val groupedSources: Map<String, List<Pair<Long, String>>>,
+        ) : Dialog
+        data class FillLangPicker(
+            val sourceName: String,
+            val langs: List<Pair<Long, String>>,
+        ) : Dialog
         data class FillMangaPicker(
             val sourceId: Long,
             val results: List<Pair<String, String>>,  // (url, title) pairs
@@ -1145,14 +1151,21 @@ class MangaScreenModel(
         val currentSourceId = successState?.source?.id ?: return
         val sources = sourceManager.getCatalogueSources()
             .filter { it.id != currentSourceId }
-            .map { it.id to "${it.name} (${it.lang.uppercase()})" }
         if (sources.isEmpty()) {
             screenModelScope.launch {
                 snackbarHostState.showSnackbar(context.stringResource(MR.strings.fill_chapters_no_sources))
             }
             return
         }
-        updateSuccessState { it.copy(dialog = Dialog.FillSourcePicker(sources)) }
+        val grouped = sources
+            .groupBy { it.name }
+            .mapValues { (_, srcs) -> srcs.map { it.id to it.lang.uppercase() }.sortedBy { it.second } }
+            .toSortedMap()
+        updateSuccessState { it.copy(dialog = Dialog.FillSourcePicker(grouped)) }
+    }
+
+    fun showFillLangPicker(sourceName: String, langs: List<Pair<Long, String>>) {
+        updateSuccessState { it.copy(dialog = Dialog.FillLangPicker(sourceName, langs)) }
     }
 
     fun searchForFillManga(sourceId: Long) {

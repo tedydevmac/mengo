@@ -292,8 +292,22 @@ class MangaScreen(
             }
             is MangaScreenModel.Dialog.FillSourcePicker -> {
                 FillSourcePickerDialog(
-                    sources = dialog.sources,
-                    onSourceSelected = { screenModel.searchForFillManga(it) },
+                    groupedSources = dialog.groupedSources,
+                    onSourceSelected = { name, langs ->
+                        if (langs.size == 1) {
+                            screenModel.searchForFillManga(langs.first().first)
+                        } else {
+                            screenModel.showFillLangPicker(name, langs)
+                        }
+                    },
+                    onDismissRequest = onDismissRequest,
+                )
+            }
+            is MangaScreenModel.Dialog.FillLangPicker -> {
+                FillLangPickerDialog(
+                    sourceName = dialog.sourceName,
+                    langs = dialog.langs,
+                    onLangSelected = { sourceId -> screenModel.searchForFillManga(sourceId) },
                     onDismissRequest = onDismissRequest,
                 )
             }
@@ -419,8 +433,8 @@ class MangaScreen(
 
 @Composable
 private fun FillSourcePickerDialog(
-    sources: List<Pair<Long, String>>,
-    onSourceSelected: (Long) -> Unit,
+    groupedSources: Map<String, List<Pair<Long, String>>>,
+    onSourceSelected: (String, List<Pair<Long, String>>) -> Unit,
     onDismissRequest: () -> Unit,
 ) {
     AlertDialog(
@@ -428,12 +442,48 @@ private fun FillSourcePickerDialog(
         title = { Text(stringResource(MR.strings.fill_chapters_select_source)) },
         text = {
             LazyColumn {
-                items(sources) { (id, name) ->
+                items(groupedSources.entries.toList()) { (name, langs) ->
                     Text(
-                        text = name,
+                        text = if (langs.size == 1) {
+                            "$name (${langs.first().second})"
+                        } else {
+                            "$name (${langs.size} languages)"
+                        },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { onSourceSelected(id) }
+                            .clickable { onSourceSelected(name, langs) }
+                            .padding(vertical = MaterialTheme.padding.medium),
+                    )
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismissRequest) {
+                Text(stringResource(MR.strings.action_cancel))
+            }
+        },
+    )
+}
+
+@Composable
+private fun FillLangPickerDialog(
+    sourceName: String,
+    langs: List<Pair<Long, String>>,
+    onLangSelected: (Long) -> Unit,
+    onDismissRequest: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismissRequest,
+        title = { Text(sourceName) },
+        text = {
+            LazyColumn {
+                items(langs) { (id, lang) ->
+                    Text(
+                        text = lang,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onLangSelected(id) }
                             .padding(vertical = MaterialTheme.padding.medium),
                     )
                 }
