@@ -13,6 +13,7 @@ import tachiyomi.core.common.util.lang.withIOContext
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.manga.model.Manga
 import tachiyomi.domain.source.model.StubSource
+import tachiyomi.domain.source.service.SourceManager
 import tachiyomi.i18n.MR
 import tachiyomi.source.local.LocalSource
 import tachiyomi.source.local.io.Format
@@ -26,6 +27,7 @@ class ChapterLoader(
     private val downloadProvider: DownloadProvider,
     private val manga: Manga,
     private val source: Source,
+    private val sourceManager: SourceManager? = null,
 ) {
 
     /**
@@ -77,6 +79,18 @@ class ChapterLoader(
      */
     private fun getPageLoader(chapter: ReaderChapter): PageLoader {
         val dbChapter = chapter.chapter
+
+        // Resolve source for filled chapters from alternate sources
+        val effectiveSource = if (dbChapter.url.startsWith(FILL_PREFIX)) {
+            val firstSep = dbChapter.url.indexOf('~', FILL_PREFIX.length)
+            val sourceId = dbChapter.url.substring(FILL_PREFIX.length, firstSep).toLong()
+            val realUrl = dbChapter.url.substring(firstSep + 1)
+            dbChapter.url = realUrl
+            sourceManager?.getOrStub(sourceId) ?: source
+        } else {
+            source
+        }
+
         val isDownloaded = downloadManager.isChapterDownloaded(
             dbChapter.name,
             dbChapter.scanlator,
@@ -93,16 +107,20 @@ class ChapterLoader(
                 downloadManager,
                 downloadProvider,
             )
-            source is LocalSource -> source.getFormat(chapter.chapter).let { format ->
+            effectiveSource is LocalSource -> effectiveSource.getFormat(chapter.chapter).let { format ->
                 when (format) {
                     is Format.Directory -> DirectoryPageLoader(format.file)
                     is Format.Archive -> ArchivePageLoader(format.file.archiveReader(context))
                     is Format.Epub -> EpubPageLoader(format.file.epubReader(context))
                 }
             }
-            source is HttpSource -> HttpPageLoader(chapter, source)
-            source is StubSource -> error(context.stringResource(MR.strings.source_not_installed, source.toString()))
+            effectiveSource is HttpSource -> HttpPageLoader(chapter, effectiveSource)
+            effectiveSource is StubSource -> error(context.stringResource(MR.strings.source_not_installed, effectiveSource.toString()))
             else -> error(context.stringResource(MR.strings.loader_not_implemented_error))
         }
+    }
+
+    companion object {
+        const val FILL_PREFIX = "~fill~"
     }
 }

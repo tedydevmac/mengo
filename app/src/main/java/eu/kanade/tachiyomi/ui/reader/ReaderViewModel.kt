@@ -172,6 +172,7 @@ class ReaderViewModel @JvmOverloads constructor(
             (readerPreferences.skipRead().get() || readerPreferences.skipFiltered().get()) -> {
                 val filteredChapters = chapters.filterNot {
                     when {
+                        it.url.startsWith(ChapterLoader.FILL_PREFIX) -> false
                         readerPreferences.skipRead().get() && it.read -> true
                         readerPreferences.skipFiltered().get() -> {
                             (manga.unreadFilterRaw == Manga.CHAPTER_SHOW_READ && !it.read) ||
@@ -213,7 +214,10 @@ class ReaderViewModel @JvmOverloads constructor(
         }
 
         val result = chaptersForReader
-            .sortedWith(getChapterSort(manga, sortDescending = false))
+            .sortedWith(
+                Comparator(getChapterSort(manga, sortDescending = false))
+                    .thenBy { it.chapterNumber },
+            )
             .run {
                 if (readerPreferences.skipDupe().get()) {
                     removeDuplicates(selectedChapter)
@@ -223,7 +227,8 @@ class ReaderViewModel @JvmOverloads constructor(
             }
             .run {
                 if (basePreferences.downloadedOnly().get()) {
-                    filterDownloaded(manga)
+                    val downloadedIds = filterDownloaded(manga).map { it.id }.toSet()
+                    filter { it.id in downloadedIds || it.url.startsWith(ChapterLoader.FILL_PREFIX) }
                 } else {
                     this
                 }
@@ -295,7 +300,7 @@ class ReaderViewModel @JvmOverloads constructor(
 
                     val context = Injekt.get<Application>()
                     val source = sourceManager.getOrStub(manga.source)
-                    loader = ChapterLoader(context, downloadManager, downloadProvider, manga, source)
+                    loader = ChapterLoader(context, downloadManager, downloadProvider, manga, source, sourceManager)
 
                     loadChapter(loader!!, getChapterList().first { chapterId == it.chapter.id })
                     Result.success(true)

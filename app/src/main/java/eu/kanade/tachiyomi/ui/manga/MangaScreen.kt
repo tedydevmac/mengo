@@ -3,7 +3,16 @@ package eu.kanade.tachiyomi.ui.manga
 import android.content.Context
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -62,6 +71,9 @@ import tachiyomi.core.common.util.lang.withIOContext
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.chapter.model.Chapter
 import tachiyomi.domain.manga.model.Manga
+import tachiyomi.i18n.MR
+import tachiyomi.presentation.core.components.material.padding
+import tachiyomi.presentation.core.i18n.stringResource
 import tachiyomi.presentation.core.screens.LoadingScreen
 
 class MangaScreen(
@@ -161,6 +173,9 @@ class MangaScreen(
             onMigrateClicked = {
                 navigator.push(MigrationConfigScreen(successState.manga.id))
             }.takeIf { successState.manga.favorite },
+            onFillChaptersClicked = screenModel::showFillSourcePicker.takeIf {
+                successState.manga.favorite
+            },
             onEditNotesClicked = { navigator.push(MangaNotesScreen(manga = successState.manga)) },
             onMultiBookmarkClicked = screenModel::bookmarkChapters,
             onMultiMarkAsReadClicked = screenModel::markChaptersRead,
@@ -275,6 +290,22 @@ class MangaScreen(
                         .takeIf { screenModel.isUpdateIntervalEnabled },
                 )
             }
+            is MangaScreenModel.Dialog.FillSourcePicker -> {
+                FillSourcePickerDialog(
+                    sources = dialog.sources,
+                    onSourceSelected = { screenModel.searchForFillManga(it) },
+                    onDismissRequest = onDismissRequest,
+                )
+            }
+            is MangaScreenModel.Dialog.FillMangaPicker -> {
+                FillMangaPickerDialog(
+                    results = dialog.results,
+                    onMangaSelected = { mangaUrl ->
+                        screenModel.fillMissingChapters(dialog.sourceId, mangaUrl)
+                    },
+                    onDismissRequest = onDismissRequest,
+                )
+            }
         }
 
         if (showScanlatorsDialog) {
@@ -384,4 +415,66 @@ class MangaScreen(
         val url = source.getMangaUrl(manga.toSManga())
         context.copyToClipboard(url, url)
     }
+}
+
+@Composable
+private fun FillSourcePickerDialog(
+    sources: List<Pair<Long, String>>,
+    onSourceSelected: (Long) -> Unit,
+    onDismissRequest: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismissRequest,
+        title = { Text(stringResource(MR.strings.fill_chapters_select_source)) },
+        text = {
+            LazyColumn {
+                items(sources) { (id, name) ->
+                    Text(
+                        text = name,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onSourceSelected(id) }
+                            .padding(vertical = MaterialTheme.padding.medium),
+                    )
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismissRequest) {
+                Text(stringResource(MR.strings.action_cancel))
+            }
+        },
+    )
+}
+
+@Composable
+private fun FillMangaPickerDialog(
+    results: List<Pair<String, String>>,  // (url, title) pairs
+    onMangaSelected: (String) -> Unit,
+    onDismissRequest: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismissRequest,
+        title = { Text(stringResource(MR.strings.fill_chapters_select_manga)) },
+        text = {
+            LazyColumn {
+                items(results) { (url, title) ->
+                    Text(
+                        text = title,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onMangaSelected(url) }
+                            .padding(vertical = MaterialTheme.padding.medium),
+                    )
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismissRequest) {
+                Text(stringResource(MR.strings.action_cancel))
+            }
+        },
+    )
 }

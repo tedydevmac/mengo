@@ -37,13 +37,16 @@ import eu.kanade.tachiyomi.data.download.model.Download
 import eu.kanade.tachiyomi.data.track.EnhancedTracker
 import eu.kanade.tachiyomi.data.track.TrackerManager
 import eu.kanade.tachiyomi.network.HttpException
+import eu.kanade.tachiyomi.source.CatalogueSource
 import eu.kanade.tachiyomi.source.Source
+import eu.kanade.tachiyomi.ui.reader.loader.ChapterLoader
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
 import eu.kanade.tachiyomi.util.chapter.getNextUnread
 import eu.kanade.tachiyomi.util.removeCovers
 import eu.kanade.tachiyomi.util.system.toast
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.catch
@@ -73,6 +76,8 @@ import tachiyomi.domain.chapter.interactor.UpdateChapter
 import tachiyomi.domain.chapter.model.Chapter
 import tachiyomi.domain.chapter.model.ChapterUpdate
 import tachiyomi.domain.chapter.model.NoChaptersException
+import tachiyomi.domain.chapter.repository.ChapterRepository
+import tachiyomi.domain.chapter.service.ChapterRecognition
 import tachiyomi.domain.chapter.service.calculateChapterGap
 import tachiyomi.domain.chapter.service.getChapterSort
 import tachiyomi.domain.library.service.LibraryPreferences
@@ -583,6 +588,11 @@ class MangaScreenModel(
             }
             val newManga = mangaRepository.getMangaById(mangaId)
             updateSuccessState { it.copy(manga = newManga, isRefreshingData = false) }
+
+            // If no chapters from source, prompt user to fetch from an alternate source
+            if (e is NoChaptersException && state.manga.favorite) {
+                showFillSourcePicker()
+            }
         }
     }
 
@@ -1090,6 +1100,11 @@ class MangaScreenModel(
         data object SettingsSheet : Dialog
         data object TrackSheet : Dialog
         data object FullCover : Dialog
+        data class FillSourcePicker(val sources: List<Pair<Long, String>>) : Dialog
+        data class FillMangaPicker(
+            val sourceId: Long,
+            val results: List<Pair<String, String>>,  // (url, title) pairs
+        ) : Dialog
     }
 
     fun dismissDialog() {
@@ -1115,6 +1130,173 @@ class MangaScreenModel(
     fun showMigrateDialog(duplicate: Manga) {
         val manga = successState?.manga ?: return
         updateSuccessState { it.copy(dialog = Dialog.Migrate(target = manga, current = duplicate)) }
+    }
+
+    fun showFillSourcePicker() {
+        val sourceManager: SourceManager = Injekt.get()
+        val currentSourceId = successState?.source?.id ?: return
+        val sources = sourceManager.getCatalogueSources()
+            .filter { it.id != currentSourceId }
+            .map { it.id to "${it.name} (${it.lang.uppercase()})" }
+        if (sources.isEmpty()) {
+            screenModelScope.launch {
+                snackbarHostState.showSnackbar(context.stringResource(MR.strings.fill_chapters_no_sources))
+            }
+            return
+        }
+        updateSuccessState { it.copy(dialog = Dialog.FillSourcePicker(sources)) }
+    }
+
+    fun searchForFillManga(sourceId: Long) {
+        dismissDialog()
+        val state = successState ?: return
+        screenModelScope.launchIO {
+            updateSuccessState { it.copy(isRefreshingData = true) }
+            try {
+                val sourceManager: SourceManager = Injekt.get()
+                val fillSource = sourceManager.get(sourceId) as? CatalogueSource
+                if (fillSource == null) {
+                    logcat(LogPriority.ERROR) { "Fill: source $sourceId not found or not a CatalogueSource" }
+                    snackbarHostState.showSnackbar("Source not found")
+                    return@launchIO
+                }
+
+                logcat { "Fill: searching for '${state.manga.title}' on ${fillSource.name} (${fillSource.lang})" }
+                val searchResult = fillSource.getSearchManga(1, state.manga.title, fillSource.getFilterList())
+                val results = searchResult.mangas.map { it.url to it.title }
+
+                if (results.isEmpty()) {
+                    snackbarHostState.showSnackbar(
+                        context.stringResource(MR.strings.fill_chapters_no_match, fillSource.name),
+                    )
+                    return@launchIO
+                }
+
+                updateSuccessState { it.copy(dialog = Dialog.FillMangaPicker(sourceId, results)) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                logcat(LogPriority.ERROR, e) { "Failed to search for fill manga" }
+                snackbarHostState.showSnackbar(with(context) { e.formattedMessage })
+            } finally {
+                updateSuccessState { it.copy(isRefreshingData = false) }
+            }
+        }
+    }
+
+    fun fillMissingChapters(sourceId: Long, mangaUrl: String) {
+        dismissDialog()
+        val state = successState ?: return
+        screenModelScope.launchIO {
+            updateSuccessState { it.copy(isRefreshingData = true) }
+            try {
+                val sourceManager: SourceManager = Injekt.get()
+                val fillSource = sourceManager.get(sourceId) as? CatalogueSource
+                if (fillSource == null) {
+                    logcat(LogPriority.ERROR) { "Fill: source $sourceId not found or not a CatalogueSource" }
+                    snackbarHostState.showSnackbar("Source not found")
+                    return@launchIO
+                }
+
+                // Compute existing chapter keys for dedup (73 vs 73.5 are distinct)
+                val chapters = state.processedChapters.map { it.chapter }
+                val existingChapterKeys = chapters
+                    .filter { it.isRecognizedNumber }
+                    .map { (it.chapterNumber * 100).toLong() }
+                    .toSet()
+
+                val isZeroChapters = chapters.isEmpty()
+                logcat { "Fill: ${chapters.size} chapters, ${existingChapterKeys.size} recognized" }
+
+                if (!isZeroChapters && existingChapterKeys.isEmpty()) {
+                    snackbarHostState.showSnackbar("No recognized chapter numbers found")
+                    return@launchIO
+                }
+
+                // Fetch chapters from the user-selected manga on the alternate source
+                val selectedManga = eu.kanade.tachiyomi.source.model.SManga.create().apply {
+                    url = mangaUrl
+                    title = state.manga.title
+                }
+                logcat { "Fill: fetching chapters from ${fillSource.name} for url=$mangaUrl" }
+                val sChapters = fillSource.getChapterList(selectedManga)
+                logcat { "Fill: fetched ${sChapters.size} chapters from ${fillSource.name}" }
+
+                // Build a sorted list of (chapterFloorNumber, sourceOrder) for interpolation
+                val chapterOrderMap = chapters
+                    .filter { it.isRecognizedNumber }
+                    .sortedBy { it.chapterNumber }
+                    .map { floor(it.chapterNumber).toInt() to it.sourceOrder }
+
+                // Parse chapter numbers and filter
+                val seenChapterKeys = mutableSetOf<Long>()
+                val fillChapters = sChapters.mapIndexed { index, sChapter ->
+                    val chapterNumber = ChapterRecognition.parseChapterNumber(
+                        state.manga.title,
+                        sChapter.name,
+                        sChapter.chapter_number.toDouble(),
+                    )
+                    val floorNum = floor(chapterNumber).toInt()
+                    val chapterKey = (chapterNumber * 100).toLong()
+                    val shouldInclude = if (chapterNumber > 0) {
+                        // Include any chapter whose exact number doesn't already exist
+                        chapterKey !in existingChapterKeys &&
+                            seenChapterKeys.add(chapterKey)
+                    } else {
+                        true
+                    }
+                    if (shouldInclude) {
+                        // Compute sourceOrder by interpolating between neighboring chapters
+                        val computedSourceOrder = if (chapterOrderMap.isEmpty()) {
+                            index.toLong()
+                        } else {
+                            val lowerNeighbor = chapterOrderMap.lastOrNull { it.first < floorNum }
+                            val upperNeighbor = chapterOrderMap.firstOrNull { it.first > floorNum }
+                            when {
+                                lowerNeighbor != null && upperNeighbor != null ->
+                                    (lowerNeighbor.second + upperNeighbor.second) / 2
+                                lowerNeighbor != null -> lowerNeighbor.second - 1
+                                upperNeighbor != null -> upperNeighbor.second + 1
+                                else -> index.toLong()
+                            }
+                        }
+                        Chapter.create().copy(
+                            mangaId = state.manga.id,
+                            url = "${ChapterLoader.FILL_PREFIX}${sourceId}~${sChapter.url}",
+                            name = sChapter.name,
+                            chapterNumber = chapterNumber,
+                            scanlator = "[${fillSource.name}]",
+                            dateUpload = sChapter.date_upload,
+                            sourceOrder = computedSourceOrder,
+                        )
+                    } else {
+                        null
+                    }
+                }.filterNotNull()
+
+                logcat { "Fill: ${fillChapters.size} chapters to add out of ${sChapters.size} total" }
+
+                if (fillChapters.isEmpty()) {
+                    snackbarHostState.showSnackbar(
+                        context.stringResource(MR.strings.fill_chapters_none_found),
+                    )
+                    return@launchIO
+                }
+
+                val chapterRepository: ChapterRepository = Injekt.get()
+                chapterRepository.addAll(fillChapters)
+                snackbarHostState.showSnackbar(
+                    context.stringResource(MR.strings.fill_chapters_success, fillChapters.size, fillSource.name),
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                logcat(LogPriority.ERROR, e) { "Failed to fill missing chapters" }
+                snackbarHostState.showSnackbar(with(context) { e.formattedMessage })
+            } finally {
+                updateSuccessState { it.copy(isRefreshingData = false) }
+            }
+        }
     }
 
     fun setExcludedScanlators(excludedScanlators: Set<String>) {

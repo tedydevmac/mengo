@@ -116,6 +116,13 @@
     <string name="action_open_in_web_view">Open in WebView</string>
     <string name="action_web_view" translatable="false">WebView</string>
     <string name="action_migrate">Migrate</string>
+    <string name="action_fill_chapters">Fill missing chapters</string>
+    <string name="fill_chapters_select_source">Select source to fill chapters from</string>
+    <string name="fill_chapters_select_manga">Select manga</string>
+    <string name="fill_chapters_no_sources">No other sources available</string>
+    <string name="fill_chapters_no_match">No match found on %s</string>
+    <string name="fill_chapters_none_found">No chapters could fill gaps</string>
+    <string name="fill_chapters_success">Filled %d chapters from %s</string>
     <string name="action_display_mode">Display mode</string>
     <string name="action_display">Display</string>
     <string name="action_display_grid">Compact grid</string>
