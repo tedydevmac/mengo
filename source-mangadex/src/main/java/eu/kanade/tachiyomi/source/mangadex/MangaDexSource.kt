@@ -118,6 +118,8 @@ class MangaDexSource(
 
     suspend fun fetchAllReadingStatuses(): Map<String, String> = followsHandler.fetchAllReadingStatuses()
 
+    suspend fun fetchAllMangaTitles(manga: SManga): List<String> = mangaHandler.fetchAllMangaTitles(manga)
+
     // ====== Web URL helpers ======
 
     override fun getMangaUrl(manga: SManga): String {

@@ -39,6 +39,7 @@ import eu.kanade.tachiyomi.data.track.TrackerManager
 import eu.kanade.tachiyomi.network.HttpException
 import eu.kanade.tachiyomi.source.CatalogueSource
 import eu.kanade.tachiyomi.source.Source
+import eu.kanade.tachiyomi.source.mangadex.MangaDexSource
 import eu.kanade.tachiyomi.ui.reader.loader.ChapterLoader
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
 import eu.kanade.tachiyomi.util.chapter.getNextUnread
@@ -1183,8 +1184,36 @@ class MangaScreenModel(
                 }
 
                 logcat { "Fill: searching for '${state.manga.title}' on ${fillSource.name} (${fillSource.lang})" }
-                val searchResult = fillSource.getSearchManga(1, state.manga.title, fillSource.getFilterList())
-                val results = searchResult.mangas.map { it.url to it.title }
+
+                // Fetch all title variants from MangaDex for broader search
+                val mangaDexSource: MangaDexSource = Injekt.get()
+                val searchTitles = try {
+                    val allTitles = mangaDexSource.fetchAllMangaTitles(state.manga.toSManga())
+                    val primary = state.manga.title
+                    listOf(primary) + allTitles.filter { it != primary }
+                } catch (_: Exception) {
+                    listOf(state.manga.title)
+                }
+
+                // Search with each title, track match count per result for ranking
+                val matchCount = mutableMapOf<String, Int>() // url → number of queries that found it
+                val firstResult = mutableMapOf<String, Pair<String, String>>() // url → (url, title)
+                for (title in searchTitles) {
+                    try {
+                        val searchResult = fillSource.getSearchManga(1, title, fillSource.getFilterList())
+                        for (manga in searchResult.mangas) {
+                            matchCount[manga.url] = (matchCount[manga.url] ?: 0) + 1
+                            if (manga.url !in firstResult) {
+                                firstResult[manga.url] = (manga.url to manga.title)
+                            }
+                        }
+                    } catch (_: Exception) { }
+                }
+
+                // Sort by match count descending (manga found by more title queries rank higher)
+                val results = firstResult.values
+                    .sortedByDescending { matchCount[it.first] ?: 0 }
+                    .toList()
 
                 if (results.isEmpty()) {
                     snackbarHostState.showSnackbar(

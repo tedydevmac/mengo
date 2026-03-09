@@ -31,4 +31,17 @@ class MangaHandler(
             initialized = true
         }
     }
+
+    suspend fun fetchAllMangaTitles(manga: SManga): List<String> = withIOContext {
+        val mangaId = manga.url.substringAfterLast("/")
+        val url = "${MangaDexConstants.BASE_URL}/manga/$mangaId".toHttpUrl().newBuilder().build()
+        val request = Request.Builder().url(url).build()
+        val response = client.newCall(request).execute()
+        val mangaResponse = json.decodeFromString<MangaResponse>(response.body.string())
+        val attrs = mangaResponse.data.attributes
+        val allTitles = mutableSetOf<String>()
+        allTitles.addAll(attrs.title.values)
+        attrs.altTitles.forEach { map -> allTitles.addAll(map.values) }
+        allTitles.filter { it.isNotBlank() }.toList()
+    }
 }
